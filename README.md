@@ -1,4 +1,6 @@
-# MobilePose-master
+MobilePose-master
+===
+[![Downloads](https://pepy.tech/badge/MobilePose-master/month)](https://pepy.tech/project/MobilePose-master)
 ## Introduction
 This is a recurrent pytorch implementation of [LSTM_Pose_Machines](https://github.com/lawy623/LSTM_Pose_Machines).the source code of the paper: "[LSTM Pose Machines" (CVPR'18)](https://arxiv.org/abs/1712.06316) by Yue Luo, Jimmy Ren, Zhouxia Wang, Wenxiu Sun, Jinshan Pan, Jianbo Liu, Jiahao Pang, Liang Lin. 
 
