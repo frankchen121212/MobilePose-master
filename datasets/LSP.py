@@ -1,6 +1,6 @@
-
+import torch
 from torch.utils.data import Dataset
-
+import numpy as np
 import os
 import json
 
@@ -33,7 +33,7 @@ class LSP(Dataset):
         self.annotations_path = os.path.join(self.root, annotations_label + 'annotations.json')
 
         if not os.path.isfile(self.annotations_path):
-            self.generate_annotations()
+            self.generate_annotations(train)
 
         with open(self.annotations_path) as data:
             self.annotations = json.load(data)
@@ -45,17 +45,12 @@ class LSP(Dataset):
         path = self.annotations[str(idx)]['image_path']
         image = imread(path).astype(np.float32)
         x, y, visibility = self.load_annotation(idx)
-
-        if self.transformer is not None:
-            image, x, y, visibility,bbox, unnormalized = self.transformer(image, x, y, visibility,bbox=None)
-        else:
-            bbox = None
+        image, x, y, visibility,bbox, unnormalized = self.transformer(image, x, y, visibility,bbox=None)
 
         label_map = compute_label_map(x, y, self.output_size, self.label_size, self.sigma_label)
         center_map = compute_center_map(x, y, self.output_size, self.sigma_center)
         x, y = np.expand_dims(x, 1), np.expand_dims(y, 1)
         meta = torch.from_numpy(np.squeeze(np.hstack([x, y]))).float()
-
         image = torch.unsqueeze(image, 0).repeat(self.T, 1, 1, 1)
         unnormalized = torch.unsqueeze(unnormalized, 0).repeat(self.T, 1, 1, 1)
         label_map = label_map.repeat(self.T, 1, 1, 1)
@@ -65,7 +60,6 @@ class LSP(Dataset):
         labels = self.annotations[str(idx)]['joints']
         x, y, visibility = self.dict_to_numpy(labels)
         x, y, visibility = self.reorder_joints(x, y, visibility)
-
         for i_joint in range(visibility.shape[0]):
             if int(visibility[i_joint]) == 0:
                 visibility[i_joint] = 1
@@ -73,38 +67,30 @@ class LSP(Dataset):
                 visibility[i_joint] = 0
         return x, y, visibility
 
-    def generate_annotations(self):
+    def generate_annotations(self,train):
+        annotation_path = os.path.join(self.root, 'joints.mat')
+        image_root = os.path.join(self.root, 'images')
+        start_index = 0
+        if not train:
+            start_index = 1000
         data = {}
         i = 0
+        annotations = loadmat(annotation_path)['joints']
 
-        annotation_paths = [os.path.join(self.root, 'joints_2000.mat'),
-                            os.path.join(self.root, 'joints_10000.mat')]
-        image_roots = [os.path.join(self.root, 'images_2000'),
-                       os.path.join(self.root, 'images_10000')]
+        for j in range(start_index, start_index+1000):
+            length = 4
+            image_path = os.path.join(image_root, 'im' + str(j + 1).zfill(length) + '.jpg')
+            joints = annotations[:, :, j]
+            x   = joints[0, :]
+            y   = joints[1, :]
+            vis = joints[2, :]
+            joints_dict = {}
+            for p_id, (p_x, p_y, p_vis) in enumerate(zip(x, y, vis)):
+                joints_dict[str(p_id)] = (p_x, p_y, int(p_vis))
 
-        for annotation_path, image_root in zip(annotation_paths, image_roots):
-            annotations = loadmat(annotation_path)['joints']
-            length = 5 if '10000' in annotation_path else 4
-            if '10000' in annotation_path:
-                annotations = np.moveaxis(annotations, 2, 0)
-            else:
-                annotations = np.moveaxis(annotations, (0, 1, 2), (2, 1, 0))
-
-            for j in range(annotations.shape[0]):
-                train = '10000' in annotation_path or j < 1000
-                if train == self.train:
-                    image_path = os.path.join(image_root, 'im' + str(j + 1).zfill(length) + '.jpg')
-                    joints = annotations[j, :, :]
-                    x, y, vis = np.split(joints, 3, axis=1)
-                    x, y, vis = np.squeeze(x, axis=1), np.squeeze(y, axis=1), np.squeeze(vis, axis=1)
-
-                    joints_dict = {}
-                    for p_id, (p_x, p_y, p_vis) in enumerate(zip(x, y, vis)):
-                        joints_dict[str(p_id)] = (p_x, p_y, int(p_vis))
-
-                    data[i] = {'image_path': image_path,
-                               'joints': joints_dict}
-                    i += 1
+            data[i] = {'image_path': image_path,
+                       'joints': joints_dict}
+            i += 1
 
         with open(self.annotations_path, 'w') as out_file:
             json.dump(data, out_file)
